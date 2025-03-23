@@ -8,6 +8,6 @@ CONTAINER_NAME = "blob"  # Change this to your container name
 COSMOS_DB_URL = os.getenv("AZURE_COSMOSDB_ENDPOINT")
 COSMOS_DB_KEY = os.getenv("AZURE_COSMOSDB_KEY")
 DATABASE_NAME = "asd"
-CONTAINER_NAME = "vectors"
+CONTAINER_NAME_cosmos = "vectors"
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")

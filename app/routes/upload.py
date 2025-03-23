@@ -11,7 +11,7 @@ import tempfile
 
 from ..config import (
     BLOB_URL, BLOB_TOKEN, CONTAINER_NAME, 
-    COSMOS_DB_URL, COSMOS_DB_KEY, DATABASE_NAME, COSMOS_CONTAINER_NAME, 
+    COSMOS_DB_URL, COSMOS_DB_KEY, DATABASE_NAME, CONTAINER_NAME_cosmos, 
     OPENAI_API_KEY
 )
 
@@ -20,7 +20,7 @@ blob_service_client = BlobServiceClient(account_url=BLOB_URL, credential=BLOB_TO
 container_client = blob_service_client.get_container_client(CONTAINER_NAME)
 cosmos_client = CosmosClient(COSMOS_DB_URL, COSMOS_DB_KEY)
 cosmos_db = cosmos_client.get_database_client(DATABASE_NAME)
-cosmos_container = cosmos_db.get_container_client(COSMOS_CONTAINER_NAME)
+cosmos_container = cosmos_db.get_container_client(CONTAINER_NAME_cosmos)
 
 openai.api_key = OPENAI_API_KEY
 
@@ -28,7 +28,7 @@ openai.api_key = OPENAI_API_KEY
 ALLOWED_EXTENSIONS = {"pdf"}
 
 # ✅ Initialize Router
-router = APIRouter(prefix="/documents", tags=["Document Processing"])
+router = APIRouter(prefix="/documents", tags=["Document"])
 
 # 🔹 **Upload & Process API**
 @router.post("/upload")

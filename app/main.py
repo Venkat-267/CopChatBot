@@ -19,7 +19,7 @@ app.add_middleware(
 )
 
 # Include Routes
-app.include_router(upload.router, tags=["Document Upload"])
+app.include_router(upload.router, tags=["Document"])
 app.include_router(chat.router, tags=["Chat"])
 # app.include_router(history.router, tags=["Chat History"])
 
