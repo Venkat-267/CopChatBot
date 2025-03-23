@@ -5,13 +5,7 @@ from azure.cosmos import CosmosClient
 from dotenv import load_dotenv
 import os
 from sklearn.metrics.pairwise import cosine_similarity
-from ..config import (
-    COSMOS_DB_URL,
-    COSMOS_DB_KEY,
-    DATABASE_NAME,
-    CONTAINER_NAME,
-    OPENAI_API_KEY,
-)
+from ..config import COSMOS_DB_URL,COSMOS_DB_KEY,DATABASE_NAME,CONTAINER_NAME,OPENAI_API_KEY
 
 # 🔹 Load environment variables (Replace with actual values)
 # 🔹 Initialize CosmosDB client
