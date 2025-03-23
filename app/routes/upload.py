@@ -3,37 +3,44 @@ from azure.storage.blob import BlobServiceClient
 import os
 import datetime
 import uuid
-from ..config import BLOB_URL, BLOB_TOKEN, CONTAINER_NAME
+import fitz  # PyMuPDF for PDF text extraction
+import openai
+import tiktoken
+from azure.cosmos import CosmosClient
+import tempfile
 
-# Load environment variables
-# load_dotenv()
+from ..config import (
+    BLOB_URL, BLOB_TOKEN, CONTAINER_NAME, 
+    COSMOS_DB_URL, COSMOS_DB_KEY, DATABASE_NAME, COSMOS_CONTAINER_NAME, 
+    OPENAI_API_KEY
+)
 
-# # Azure Blob Storage Configuration
-# BLOB_URL = os.getenv("AZURE_BLOB_URL")
-# BLOB_TOKEN = os.getenv("AZURE_BLOB_TOKEN")
-# CONTAINER_NAME = os.getenv("AZURE_CONTAINER_NAME")
-
-# Initialize Azure Blob Storage client
+# ✅ Initialize Azure Clients
 blob_service_client = BlobServiceClient(account_url=BLOB_URL, credential=BLOB_TOKEN)
 container_client = blob_service_client.get_container_client(CONTAINER_NAME)
+cosmos_client = CosmosClient(COSMOS_DB_URL, COSMOS_DB_KEY)
+cosmos_db = cosmos_client.get_database_client(DATABASE_NAME)
+cosmos_container = cosmos_db.get_container_client(COSMOS_CONTAINER_NAME)
 
-# Allowed file extensions
-ALLOWED_EXTENSIONS = {"pdf", "docx", "xlsx"}
+openai.api_key = OPENAI_API_KEY
 
-# Initialize Router
-router = APIRouter(prefix="/documents", tags=["Document Upload"])
+# ✅ Allowed file extensions
+ALLOWED_EXTENSIONS = {"pdf"}
 
-# 🔹 1️⃣ **UPLOAD DOCUMENT API**
+# ✅ Initialize Router
+router = APIRouter(prefix="/documents", tags=["Document Processing"])
+
+# 🔹 **Upload & Process API**
 @router.post("/upload")
-async def upload_document(file: UploadFile = File(...)):
+async def upload_and_process_document(file: UploadFile = File(...)):
     """
-    Uploads a document (PDF, Word, Excel) to Azure Blob Storage.
-    Returns the storage URL.
+    Uploads a document (PDF) to Azure Blob Storage, extracts text,
+    generates embeddings, and stores them in CosmosDB.
     """
-    # ✅ Validate file format
+    # ✅ Validate file type
     file_extension = file.filename.split(".")[-1].lower()
     if file_extension not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="Only PDF, DOCX, and XLSX files are allowed")
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
     # ✅ Generate a unique filename
     timestamp = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
@@ -44,7 +51,87 @@ async def upload_document(file: UploadFile = File(...)):
     blob_client = container_client.get_blob_client(new_filename)
     blob_client.upload_blob(file.file, overwrite=True)
 
-    # ✅ Construct file URL
-    file_url = f"{BLOB_URL}/{CONTAINER_NAME}/{new_filename}?{BLOB_TOKEN.lstrip('?')}"
+    # ✅ Save file temporarily for processing
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+        temp_file.write(await file.read())  # Save file content
+        temp_path = temp_file.name  # Get file path
 
-    return {"message": "File uploaded successfully", "file_url": file_url}
+    # ✅ Process PDF and store embeddings
+    process_pdf_and_store(temp_path, new_filename)
+
+    # ✅ Cleanup temp file
+    os.remove(temp_path)
+
+    return {"message": "File uploaded & processed successfully", "file_url": new_filename}
+
+# 🔹 **Extract Text from PDF**
+def extract_text_from_pdf(pdf_path):
+    text = ""
+    try:
+        doc = fitz.open(pdf_path)
+        for page in doc:
+            text += page.get_text("text") + "\n"
+    except Exception as e:
+        print(f"❌ Error extracting text: {e}")
+    return text.strip()
+
+# 🔹 **Split Text into Chunks (500 tokens)**
+def split_text(text, chunk_size=500):
+    encoding = tiktoken.get_encoding("cl100k_base")
+    tokens = encoding.encode(text)
+
+    chunks = []
+    for i in range(0, len(tokens), chunk_size):
+        chunk = tokens[i : i + chunk_size]
+        chunks.append(encoding.decode(chunk))
+
+    return chunks
+
+# 🔹 **Generate Vector Embeddings**
+def generate_embeddings(text_chunks):
+    embeddings = []
+    for i, chunk in enumerate(text_chunks):
+        try:
+            response = openai.embeddings.create(
+                model="text-embedding-ada-002",  
+                input=[chunk]  
+            )
+            embeddings.append(response.data[0].embedding)
+        except Exception as e:
+            print(f"❌ Error generating embeddings for chunk {i}: {e}")
+    return embeddings
+
+# 🔹 **Store Vectors in CosmosDB**
+def store_vectors_in_cosmos(file_name, text_chunks, vectors):
+    if not vectors:
+        print("❌ No vectors to store.")
+        return
+
+    for i in range(len(text_chunks)):
+        doc_id = str(uuid.uuid4())
+
+        item = {
+            "id": doc_id,
+            "file_name": file_name,
+            "chunk_index": i,
+            "text": text_chunks[i],
+            "vector": vectors[i],
+        }
+
+        try:
+            cosmos_container.upsert_item(item)
+            print(f"✅ Stored chunk {i+1}/{len(text_chunks)} in CosmosDB")
+        except Exception as e:
+            print(f"❌ Error storing chunk {i+1}: {e}")
+
+# 🔹 **Main Processing Function**
+def process_pdf_and_store(pdf_path, file_name):
+    text = extract_text_from_pdf(pdf_path)
+
+    if not text:
+        print("❌ No text extracted from the document.")
+        return
+
+    text_chunks = split_text(text)
+    vectors = generate_embeddings(text_chunks)
+    store_vectors_in_cosmos(file_name, text_chunks, vectors)
