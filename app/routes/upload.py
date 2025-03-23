@@ -44,23 +44,30 @@ async def upload_and_process_document(file: UploadFile = File(...)):
 
     # ✅ Generate a unique filename
     timestamp = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    unique_id = uuid.uuid4().hex[:8]  # Short unique identifier
+    unique_id = uuid.uuid4().hex[:8]
     new_filename = f"document_{timestamp}_{unique_id}.{file_extension}"
 
     # ✅ Upload file to Azure Blob
     blob_client = container_client.get_blob_client(new_filename)
     blob_client.upload_blob(file.file, overwrite=True)
 
-    # ✅ Save file temporarily for processing
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-        temp_file.write(await file.read())  # Save file content
-        temp_path = temp_file.name  # Get file path
+    # ✅ Save file temporarily before processing
+    temp_path = f"/tmp/{new_filename}"  # Use Linux tmp directory
+    try:
+        with open(temp_path, "wb") as temp_file:
+            temp_file.write(await file.read())  # ✅ Properly save the file
 
-    # ✅ Process PDF and store embeddings
-    process_pdf_and_store(temp_path, new_filename)
+        # ✅ Process PDF and store embeddings
+        process_pdf_and_store(temp_path, new_filename)
 
-    # ✅ Cleanup temp file
-    os.remove(temp_path)
+    except Exception as e:
+        print(f"❌ Error processing file: {e}")
+        raise HTTPException(status_code=500, detail="Error processing document.")
+
+    finally:
+        # ✅ Cleanup: Remove temp file
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
     return {"message": "File uploaded & processed successfully", "file_url": new_filename}
 
