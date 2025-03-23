@@ -30,7 +30,6 @@ ALLOWED_EXTENSIONS = {"pdf"}
 # ✅ Initialize Router
 router = APIRouter(prefix="/documents", tags=["Document"])
 
-# 🔹 **Upload & Process API**
 @router.post("/upload")
 async def upload_and_process_document(file: UploadFile = File(...)):
     """
@@ -47,15 +46,21 @@ async def upload_and_process_document(file: UploadFile = File(...)):
     unique_id = uuid.uuid4().hex[:8]
     new_filename = f"document_{timestamp}_{unique_id}.{file_extension}"
 
-    # ✅ Upload file to Azure Blob
-    blob_client = container_client.get_blob_client(new_filename)
-    blob_client.upload_blob(file.file, overwrite=True)
-
     # ✅ Save file temporarily before processing
     temp_path = f"/tmp/{new_filename}"  # Use Linux tmp directory
     try:
+        file_content = await file.read()  # ✅ Read the entire file content first
+
+        if not file_content:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
         with open(temp_path, "wb") as temp_file:
-            temp_file.write(await file.read())  # ✅ Properly save the file
+            temp_file.write(file_content)  # ✅ Write content to disk
+            temp_file.flush()  # ✅ Ensure data is written before closing
+
+        # ✅ Upload file to Azure Blob
+        blob_client = container_client.get_blob_client(new_filename)
+        blob_client.upload_blob(file_content, overwrite=True)  # ✅ Upload the actual file content
 
         # ✅ Process PDF and store embeddings
         process_pdf_and_store(temp_path, new_filename)
@@ -70,6 +75,7 @@ async def upload_and_process_document(file: UploadFile = File(...)):
             os.remove(temp_path)
 
     return {"message": "File uploaded & processed successfully", "file_url": new_filename}
+
 
 # 🔹 **Extract Text from PDF**
 def extract_text_from_pdf(pdf_path):
