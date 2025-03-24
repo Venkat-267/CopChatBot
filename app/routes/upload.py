@@ -44,10 +44,20 @@ async def upload_and_process_document(file: UploadFile = File(...)):
     # ✅ Generate a unique filename
     timestamp = datetime.datetime.utcnow().strftime("%Y%m%d%H%M%S")
     unique_id = uuid.uuid4().hex[:8]
-    new_filename = f"document_{timestamp}_{unique_id}.{file_extension}"
+    # ✅ Retain the original filename and append a UUID
+    original_filename = os.path.splitext(file.filename)[0]  # Remove extension
+    file_extension = os.path.splitext(file.filename)[-1].lower()  # Get extension
+
+    if file_extension.replace(".", "") not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+
+    # Generate UUID
+    unique_id = uuid.uuid4().hex[:8]  
+    new_filename = f"{original_filename}_{unique_id}{file_extension}"  # Retain original name + UUID
 
     # ✅ Save file temporarily before processing
-    temp_path = f"/tmp/{new_filename}"  # Use Linux tmp directory
+    temp_path = f"/tmp/{new_filename}"
+
     try:
         file_content = await file.read()  # ✅ Read the entire file content first
 
